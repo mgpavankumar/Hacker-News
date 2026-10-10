@@ -15,6 +15,7 @@ model User {
   password  String
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+  sessions  Session[]
   posts     Post[]
   comments  Comment[]
   likes     Like[]
@@ -51,4 +52,22 @@ model Like {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([postId, userId])
+}
+
+model Session {
+  id        String   @id
+  userId    String
+  expiresAt DateTime
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model AuthRateLimit {
+  key       String   @id
+  count     Int
+  expiresAt DateTime
+
+  @@index([expiresAt])
 }
