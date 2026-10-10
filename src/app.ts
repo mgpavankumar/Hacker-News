@@ -1,3 +1,5 @@
+import { prisma } from './extras/prisma.js';
+import { addOperations } from './operations.js';
 import { bodyLimit } from 'hono/body-limit';
 import { secureHeaders } from 'hono/secure-headers';
 import { Hono } from 'hono';
@@ -10,14 +12,11 @@ import { postsRoutes } from './routes/post-routes.js';
 import { commentRoutes } from './routes/comments-routes.js';
 import { likeRoutes } from './routes/likes-routes.js';
 
-export function createApp() {
+export function createApp(options: { readiness?: () => Promise<unknown> } = {}) {
   const app = new Hono();
   app.use('*', secureHeaders());
+  addOperations(app, options.readiness ?? (() => prisma.$queryRaw`SELECT 1 FROM "User", "Session", "AuthRateLimit" WHERE FALSE`));
   app.use('*', bodyLimit({ maxSize: 64 * 1024, onError: c => c.json({ error: 'Request body exceeds 64 KiB' }, 413) }));
-  app.use('*', async (c, next) => {
-    c.header('Cache-Control', 'no-store');
-    await next();
-  });
   app.onError((error, c) => {
     if (error instanceof HTTPException) return c.json({ error: error.message }, error.status);
     if (error instanceof z.ZodError || error instanceof SyntaxError) return c.json({ error: 'Invalid request body' }, 400);

@@ -1,13 +1,16 @@
+import { Server } from 'node:http';
+import { getPort, requireDatabase, registerShutdown } from './operations.js';
 import { serve } from '@hono/node-server';
 import { createApp } from './app.js';
 import { prisma } from './extras/prisma.js';
 import { getJwtSecret } from '../environment.js';
 
 getJwtSecret();
-if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required');
-const server = serve({ fetch: createApp().fetch, port: Number(process.env.PORT ?? 3000) }, info => {
+requireDatabase();
+const server = serve({ fetch: createApp().fetch, port: getPort() }, info => {
   console.log(`Server is running on http://localhost:${info.port}`);
 });
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.once(signal, () => { server.close(() => { void prisma.$disconnect().finally(() => process.exit(0)); }); });
-}
+if (!(server instanceof Server)) throw new Error('Expected an HTTP/1 server');
+server.requestTimeout = 15000;
+server.headersTimeout = 10000;
+registerShutdown(server, () => prisma.$disconnect());

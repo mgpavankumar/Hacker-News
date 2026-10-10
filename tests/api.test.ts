@@ -1,3 +1,4 @@
+import { authLimitKey, consumeAuthLimit } from '../src/extras/auth-rate-limit.js';
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -8,12 +9,14 @@ import { jwtIssuer, jwtAudience } from '../environment.js';
 
 const app = createApp();
 const users: string[] = [];
+const limitKeys: string[] = [];
 before(() => {
   if (!process.env.TEST_DATABASE_URL) throw new Error('Set TEST_DATABASE_URL to a dedicated test database');
   process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
   process.env.JWT_SECRET = randomBytes(32).toString('hex');
 });
 after(async () => {
+  await prisma.authRateLimit.deleteMany({ where: { key: { in: limitKeys } } });
   await prisma.user.deleteMany({ where: { id: { in: users } } });
   await prisma.$disconnect();
 });
@@ -92,4 +95,45 @@ test('invalid bodies, pagination, and missing resources', async () => {
   assert.equal((await app.request('/comments/on/missing', auth(user.token))).status, 404);
   assert.equal((await app.request('/likes/on/missing', auth(user.token, 'POST'))).status, 404);
   assert.equal((await app.request('/posts', { ...auth(user.token, 'POST'), body: '{' })).status, 400);
+});
+
+test('logout revokes only its own session; logout-all revokes all account sessions', async () => {
+  const user = await account();
+  const login = await app.request('/auth/login', json('POST', { username: user.username, password: 'Example-Password-1!' }));
+  const second = (await login.json()).token;
+  assert.equal((await app.request('/auth/logout', auth(user.token, 'POST'))).status, 204);
+  assert.equal((await app.request('/users/me', auth(user.token))).status, 401);
+  assert.equal((await app.request('/users/me', auth(second))).status, 200);
+  assert.equal((await app.request('/auth/logout-all', auth(second, 'POST'))).status, 204);
+  assert.equal((await app.request('/users/me', auth(second))).status, 401);
+});
+test('expired sessions, deleted users, and untracked legacy tokens are rejected', async () => {
+  const user = await account();
+  const payload = jwt.decode(user.token) as jwt.JwtPayload;
+  await prisma.session.update({ where: { id: payload.jti }, data: { expiresAt: new Date(0) } });
+  assert.equal((await app.request('/users/me', auth(user.token))).status, 401);
+  const legacy = jwt.sign({}, process.env.JWT_SECRET!, { subject: user.user.id, issuer: jwtIssuer, audience: jwtAudience, expiresIn: '1h' });
+  assert.equal((await app.request('/users/me', auth(legacy))).status, 401);
+  const second = await account();
+  await prisma.user.delete({ where: { id: second.user.id } });
+  assert.equal((await app.request('/posts', auth(second.token))).status, 401);
+});
+test('account throttling survives application instances and ignores forwarded headers', async () => {
+  const username = `missing_${randomUUID().replaceAll('-', '')}`;
+  const key = authLimitKey('account:login', username.toLowerCase());
+  limitKeys.push(key);
+  for (let i = 0; i < 10; i++) assert.equal((await consumeAuthLimit(key, 10)).allowed, true);
+  const body = json('POST', { username, password: 'Example-Password-1!' });
+  for (const forwarded of ['198.51.100.1', '203.0.113.2']) {
+    const response = await createApp().request('/auth/login', { ...body, headers: { ...body.headers, 'X-Forwarded-For': forwarded } });
+    assert.equal(response.status, 429);
+    assert.ok(Number(response.headers.get('Retry-After')) > 0);
+  }
+  await prisma.authRateLimit.update({ where: { key }, data: { expiresAt: new Date(0) } });
+  assert.equal((await consumeAuthLimit(key, 10)).allowed, true);
+});
+test('concurrent auth increments cannot exceed the permitted attempts', async () => {
+  const key = authLimitKey('test', randomUUID()); limitKeys.push(key);
+  const results = await Promise.all(Array.from({ length: 20 }, () => consumeAuthLimit(key, 10)));
+  assert.equal(results.filter(r => r.allowed).length, 10);
 });

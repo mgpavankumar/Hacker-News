@@ -10,7 +10,7 @@ An authenticated PostgreSQL-backed API for users, posts, comments, and likes.
 ## Features
 
 - Sign up and log in using salted scrypt password hashes
-- Use signed, expiring JWTs for protected routes
+- Use signed, expiring JWTs backed by revocable database sessions for protected routes
 - Create posts and manage owned posts/comments
 - Enforce one like per user per post
 - Paginate records without exposing password hashes
@@ -67,7 +67,7 @@ See [TEST_RESULTS.md](TEST_RESULTS.md) for recorded local verification and its l
 
 ## Current behavior and limitations
 
-JWTs expire after one hour and validate signature, algorithm, issuer, and audience. Rotate the previously committed JWT key. Existing unsalted SHA-256 password hashes require a password reset; the new verifier deliberately rejects them. Before applying the unique-like migration to an existing database, review and resolve any duplicate likes; the migration does not delete rows. Add rate limiting, account recovery, and token revocation before production use.
+JWTs expire after one hour and validate signature, algorithm, issuer, and audience. Rotate the previously committed JWT key. Existing unsalted SHA-256 password hashes require a password reset; the new verifier deliberately rejects them. Before applying the unique-like migration to an existing database, review and resolve any duplicate likes; the migration does not delete rows. Database-backed authentication limits and revocable sessions are included. Account recovery and deployment-specific safeguards remain launch dependencies; see [PRODUCTION.md](PRODUCTION.md).
 
 ## HTTP routes
 
@@ -116,3 +116,7 @@ Keep changes focused, use synthetic data, and include steps or tests demonstrati
 ## HTTP safeguards
 
 Requests are limited to 64 KiB and oversized payloads return JSON with HTTP 413. Responses include Hono security headers. Responses use `Cache-Control: no-store` to discourage caching tokens and personal records.
+
+## Deployment safeguards
+
+Compiled startup, startup validation, health/readiness probes, request IDs, and bounded graceful shutdown are covered in [PRODUCTION.md](PRODUCTION.md).
