@@ -1,5 +1,7 @@
 # Hacker News–Style Backend · Hono & Prisma
 
+[![CI](https://github.com/mgpavankumar/Hacker-News/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mgpavankumar/Hacker-News/actions/workflows/ci.yml)
+
 An authenticated PostgreSQL-backed API for users, posts, comments, and likes.
 
 **Author:** [M. G. Pavan Kumar](https://github.com/mgpavankumar)
@@ -52,7 +54,7 @@ See [TEST_RESULTS.md](TEST_RESULTS.md) for recorded local verification and its l
 
 | Path | Purpose |
 | --- | --- |
-| `src/app.ts` | Application logic and/or demonstration |
+| `src/app.ts` | HTTP application, routes, and request validation |
 | `src/index.ts` | Server entry point |
 | `tests/` | Automated regression checks |
 | `tsconfig.json` | Strict ESM compilation settings |
@@ -88,6 +90,24 @@ JWTs expire after one hour and validate signature, algorithm, issuer, and audien
 | DELETE | `/likes/on/:postId` |
 
 Use `Authorization: Bearer <token>` on protected routes. The older `token` header is supported for compatibility. `/auth/signup` and `/auth/login` accept JSON with `username` and `password`.
+
+## Try the API
+
+Use a disposable local account. The password below is example data:
+
+```bash
+curl -i http://localhost:3000/auth/signup -H 'Content-Type: application/json' -d '{"username":"demo_reader","password":"Example-Password-1!"}'
+curl -i http://localhost:3000/auth/login -H 'Content-Type: application/json' -d '{"username":"demo_reader","password":"Example-Password-1!"}'
+```
+
+Copy the returned token into the following request, replacing `YOUR_TOKEN`:
+
+```bash
+curl -i http://localhost:3000/users/me -H 'Authorization: Bearer YOUR_TOKEN'
+curl -i http://localhost:3000/posts -H 'Authorization: Bearer YOUR_TOKEN' -H 'Content-Type: application/json' -d '{"title":"My first demo post","content":"Exploring a tested TypeScript backend."}'
+```
+
+The authenticated profile omits the password hash. Requests without a valid token return 401. [Integration tests](tests/api.test.ts) demonstrate posts, comments, likes, and ownership checks. On Windows PowerShell use `curl.exe`.
 
 ## Contributing
 
