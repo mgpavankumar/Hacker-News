@@ -1,6 +1,6 @@
-# Hacker News–Style Backend · Hono & Prisma
+# Community Discussion API
 
-[![CI](https://github.com/mgpavankumar/Hacker-News/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mgpavankumar/Hacker-News/actions/workflows/ci.yml)
+[![CI](https://github.com/mgpavankumar/community-discussion-api/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mgpavankumar/community-discussion-api/actions/workflows/ci.yml)
 
 An authenticated PostgreSQL-backed API for users, posts, comments, and likes.
 
@@ -20,8 +20,8 @@ An authenticated PostgreSQL-backed API for users, posts, comments, and likes.
 Install Node.js 22 or newer and npm. Clone this repository:
 
 ```bash
-git clone https://github.com/mgpavankumar/Hacker-News.git
-cd Hacker-News
+git clone https://github.com/mgpavankumar/community-discussion-api.git
+cd community-discussion-api
 ```
 
 ```bash
