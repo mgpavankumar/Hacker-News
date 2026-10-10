@@ -1,114 +1,27 @@
-import { createHash } from "crypto";
+import jwt from 'jsonwebtoken';
+import { HTTPException } from 'hono/http-exception';
+import { prisma } from '../../extras/prisma.js';
+import { getJwtSecret, jwtIssuer, jwtAudience } from '../../../environment.js';
+import { hashPassword, verifyPassword } from './password.js';
+import type { PublicUser, SignUpWithUsernameAndPasswordResult } from './authentication-types.js';
 
-import {
-  LogInWtihUsernameAndPasswordError,
-  SignUpWithUsernameAndPasswordError,
-  type LogInWithUsernameAndPasswordResult,
-  type SignUpWithUsernameAndPasswordResult,
-} from "./authentication-types";
-import { prisma } from '../../extras/prisma';
-import jwt from "jsonwebtoken";
-import { jwtSecretKey } from "../../../environment";
+export const publicUserSelect = { id: true, username: true, name: true, createdAt: true, updatedAt: true } as const;
+const resultFor = (user: PublicUser): SignUpWithUsernameAndPasswordResult => ({
+  user,
+  token: jwt.sign({ username: user.username }, getJwtSecret(), { algorithm: 'HS256', subject: user.id, issuer: jwtIssuer, audience: jwtAudience, expiresIn: '1h' }),
+});
 
-export const signUpWithUsernameAndPassword = async (parameters: {
-  username: string;
-  password: string;
-}): Promise<SignUpWithUsernameAndPasswordResult> => {
-  const isUserExistingAlready = await checkIfUserExistsAlready({
-    username: parameters.username,
-  });
+export async function signUpWithUsernameAndPassword(parameters: { username: string; password: string }): Promise<SignUpWithUsernameAndPasswordResult> {
+  // Check configuration before creating the account.
+  getJwtSecret();
+  const password = await hashPassword(parameters.password);
+  const user = await prisma.user.create({ data: { username: parameters.username, password }, select: publicUserSelect });
+  return resultFor(user);
+}
 
-  if (isUserExistingAlready) {
-    throw SignUpWithUsernameAndPasswordError.CONFLICTING_USERNAME;
-  }
-
-  const passwordHash = createPasswordHash({
-    password: parameters.password,
-  });
-
-  const user = await prisma.user.create({
-    data: {
-      username: parameters.username,
-      password: passwordHash,
-    },
-  });
-
-  const token = createJWToken({
-    id: user.id,
-    username: user.username,
-  });
-
-  const result: SignUpWithUsernameAndPasswordResult = {
-    token,
-    user,
-  };
-
-  return result;
-};
-
-export const logInWithUsernameAndPassword = async (parameters: {
-  username: string;
-  password: string;
-}): Promise<LogInWithUsernameAndPasswordResult> => {
-  // 1. Create the password hash
-  const passwordHash = createPasswordHash({
-    password: parameters.password,
-  });
-
-  // 2. Find the user with the username and password hash
-  const user = await prisma.user.findUnique({
-    where: {
-      username: parameters.username,
-      password: passwordHash,
-    },
-  });
-
-  // 3. If the user is not found, throw an error
-  if (!user) {
-    throw LogInWtihUsernameAndPasswordError.INCORRECT_USERNAME_OR_PASSWORD;
-  }
-
-  // 4. If the user is found, create a JWT token and return it
-  const token = createJWToken({
-    id: user.id,
-    username: user.username,
-  });
-
-  return {
-    token,
-    user,
-  };
-};
-
-const createJWToken = (parameters: { id: string; username: string }): string => {
-  // Generate token
-  const jwtPayload: jwt.JwtPayload = {
-    iss: "https://purpleshorts.co.in",
-    sub: parameters.id,
-    username: parameters.username,
-  };
-
-  const token = jwt.sign(jwtPayload, jwtSecretKey, {
-    expiresIn: "30d",
-  });
-
-  return token;
-};
-
-const checkIfUserExistsAlready = async (parameters: { username: string }): Promise<boolean> => {
-  const existingUser = await prisma.user.findUnique({
-    where: {
-      username: parameters.username,
-    },
-  });
-
-  if (existingUser) {
-    return true;
-  }
-
-  return false;
-};
-
-const createPasswordHash = (parameters: { password: string }): string => {
-  return createHash("sha256").update(parameters.password).digest("hex");
-};
+export async function logInWithUsernameAndPassword(parameters: { username: string; password: string }): Promise<SignUpWithUsernameAndPasswordResult> {
+  const stored = await prisma.user.findUnique({ where: { username: parameters.username } });
+  if (!stored || !await verifyPassword(parameters.password, stored.password)) throw new HTTPException(401, { message: 'Incorrect username or password' });
+  const { password: _password, ...user } = stored;
+  return resultFor(user);
+}
