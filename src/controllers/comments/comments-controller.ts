@@ -1,120 +1,24 @@
-import { getPagination } from "../../extras/pagination";
-import { prisma } from "../../extras/prisma";
-import {
-  CommentStatus,
-  type CreatCommentResult,
-  type CommentResult,
-} from "./comments-type";
+import { HTTPException } from 'hono/http-exception';
+import { getPagination } from '../../extras/pagination.js';
+import { prisma } from '../../extras/prisma.js';
+import { CommentStatus, type CreatCommentResult } from './comments-type.js';
 
-export const createComment = async (params: {
-  content: string;
-  postId: string;
-  userId: string;
-}): Promise<CreatCommentResult> => {
-  try {
-    const existPostId = await prisma.post.findUnique({
-      where: { id: params.postId },
-    });
-
-    if (!existPostId) {
-      throw new Error(CommentStatus.POST_NOT_FOUND);
-    }
-
-    const result = await prisma.comment.create({
-      data: {
-        text: params.content,
-        post: { connect: { id: params.postId } },
-        user: { connect: { id: params.userId } },
-      },
-    });
-
-    return { comment: result };
-  } catch (error) {
-    console.error("Error creating comment:", error);
-    throw new Error(CommentStatus.COMMENT_CREATION_FAILED);
-  }
-};
-
-// Get all comments for a post (reverse chronological order, paginated)
-export const getAllComments = async (params: {
-  postId: string;
-  page: number;
-  limit: number;
-}): Promise<{ comments: any[] }> => {
-  try {
-    const { skip, take } = getPagination(params.page, params.limit);
-
-    const comments = await prisma.comment.findMany({
-      where: { postId: params.postId }, // Filter by postId
-      orderBy: { createdAt: "desc" }, // Reverse chronological order
-      skip,
-      take,
-      include: {
-        user: {
-          select: {
-            id: true,
-            username: true,
-          },
-        },
-      },
-    });
-
-    if (!comments || comments.length === 0) {
-      return { comments: [] };
-    }
-
-    return { comments };
-  } catch (error) {
-    console.error("Error fetching comments:", error);
-    throw new Error(CommentStatus.UNKNOWN);
-  }
-};
-
-export const deleteComment = async (params: {
-  commentId: string;
-  userId: string;
-}): Promise<CommentStatus> => {
-  try {
-    const comment = await prisma.comment.findUnique({
-      where: { id: params.commentId },
-    });
-
-    if (!comment) {
-      return CommentStatus.COMMENT_NOT_FOUND;
-    }
-
-    await prisma.comment.delete({ where: { id: params.commentId } });
-
-    return CommentStatus.DELETE_SUCCESS;
-  } catch (error) {
-    console.error("Error deleting comment:", error);
-    return CommentStatus.UNKNOWN;
-  }
-};
-
-//update comment controller
-export const updateComment = async (params: {
-  commentId: string;
-  userId: string;
-  content: string;
-}): Promise<CommentStatus> => {
-  try {
-    const comment = await prisma.comment.findUnique({
-      where: { id: params.commentId },
-    });
-
-    if (!comment) {
-      return CommentStatus.COMMENT_NOT_FOUND;
-    }
-
-    await prisma.comment.update({
-      where: { id: params.commentId },
-      data: { text: params.content },
-    });
-
-    return CommentStatus.UPDATE_SUCCESS;
-  } catch (error) {
-    console.error("Error updating comment:", error);
-    return CommentStatus.UNKNOWN;
-  }
-};
+export async function createComment(params: { content: string; postId: string; userId: string }): Promise<CreatCommentResult> {
+  if (!await prisma.post.findUnique({ where: { id: params.postId } })) throw new HTTPException(404, { message: 'Post not found' });
+  return { comment: await prisma.comment.create({ data: params }) };
+}
+export async function getAllComments(params: { postId: string; page: number; limit: number }) {
+  const { skip, take } = getPagination(params.page, params.limit);
+  if (!await prisma.post.findUnique({ where: { id: params.postId } })) throw new HTTPException(404, { message: 'Post not found' });
+  return { comments: await prisma.comment.findMany({ where: { postId: params.postId }, skip, take, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], include: { user: { select: { id: true, username: true } } } }) };
+}
+export async function deleteComment(params: { commentId: string; userId: string }) {
+  const result = await prisma.comment.deleteMany({ where: { id: params.commentId, userId: params.userId } });
+  if (!result.count) throw new HTTPException(404, { message: 'Comment not found or not owned by you' });
+  return CommentStatus.DELETE_SUCCESS;
+}
+export async function updateComment(params: { commentId: string; userId: string; content: string }) {
+  const result = await prisma.comment.updateMany({ where: { id: params.commentId, userId: params.userId }, data: { content: params.content } });
+  if (!result.count) throw new HTTPException(404, { message: 'Comment not found or not owned by you' });
+  return CommentStatus.UPDATE_SUCCESS;
+}
